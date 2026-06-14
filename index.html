@@ -385,12 +385,12 @@ function normAll(session, { drivers, laps, positions, raceControl, weather, team
 
 function tick() {
   if (S.phase !== 'playing') return;
-  if (S.idx >= S._src.length) { S.phase = 'done'; updateHdr(); renderMenu(); return; }
+  if (S.idx >= S._src.length) { S.phase = 'done'; updateHdr(); renderMenu(); if (!S.idleTimer) S.idleTimer = setInterval(checkForLive, 60000); return; }
 
   const ev = S._src[S.idx++];
   emit(ev);
 
-  if (S.idx >= S._src.length) { S.phase = 'done'; updateHdr(); renderMenu(); return; }
+  if (S.idx >= S._src.length) { S.phase = 'done'; updateHdr(); renderMenu(); if (!S.idleTimer) S.idleTimer = setInterval(checkForLive, 60000); return; }
 
   const delta = +new Date(S._src[S.idx].timestamp) - +new Date(ev.timestamp);
   const delay = Math.min(Math.max(0, delta) / S.speed, MAX_GAP);
@@ -494,6 +494,7 @@ async function pollLive() {
     if (S.liveSession.date_end && new Date(S.liveSession.date_end) < new Date()) {
       clearInterval(S.liveTimer); S.liveTimer=null; S.liveSession=null;
       S.phase='done'; updateHdr(); renderMenu();
+      if (!S.idleTimer) S.idleTimer = setInterval(checkForLive, 60000);
     }
   } catch(e) {
     console.error('Live poll error:', e);
@@ -752,7 +753,17 @@ function showIdle() {
     <div class="sc-status">NO LIVE SESSION<br><br>Checking every minute…</div>
   </div>`;
   if (S.idleTimer) clearInterval(S.idleTimer);
-  S.idleTimer = setInterval(loadSession, 60000);
+  S.idleTimer = setInterval(checkForLive, 60000);
+}
+
+// Silently check if a session has gone live — used from both idle and done states
+async function checkForLive() {
+  try {
+    const list = await get('sessions', { year: new Date().getFullYear() });
+    const now = new Date();
+    const live = list.find(s => new Date(s.date_start) <= now && isLiveSession(s));
+    if (live) loadSession();
+  } catch(e) { /* ignore */ }
 }
 
 async function loadSession() {
