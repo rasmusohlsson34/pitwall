@@ -231,6 +231,8 @@ const S = {
   liveSession: null,
   liveTimer: null,
   lastPollTs: null,   // ISO string — fetch events newer than this
+  // Idle polling
+  idleTimer: null,
   // Countdown
   nextRace: null,
   countdownTimer: null,
@@ -535,14 +537,15 @@ function updateHdr() {
   if (st) {
     const { phase, idx, meta } = S;
     const [txt, col] =
-      phase === 'loading' ? ['LOADING…',         '#666']
-    : phase === 'error'   ? ['ERROR',            '#cc3333']
+      phase === 'loading'  ? ['LOADING…',         '#666']
+    : phase === 'error'    ? ['ERROR',            '#cc3333']
+    : phase === 'standby'  ? ['STANDBY',          '#666']
     : phase === 'playing' && S.liveSession
-                          ? [`● LIVE  ${S.emitted.length} EVT`, '#39d353']
-    : phase === 'playing' ? [`REPLAY  ${idx}/${meta?.totalEvents??0}`, '#39d353']
-    : phase === 'paused'  ? ['PAUSED',           '#e8c133']
-    : phase === 'done'    ? [S.liveSession ? 'SESSION ENDED' : 'REPLAY DONE', '#666']
-    :                       ['STANDBY',          '#666'];
+                           ? [`● LIVE  ${S.emitted.length} EVT`, '#39d353']
+    : phase === 'playing'  ? [`REPLAY  ${idx}/${meta?.totalEvents??0}`, '#39d353']
+    : phase === 'paused'   ? ['PAUSED',           '#e8c133']
+    : phase === 'done'     ? [S.liveSession ? 'SESSION ENDED' : 'REPLAY DONE', '#666']
+    :                        ['STANDBY',          '#666'];
     st.textContent = txt;
     st.style.color = col;
   }
@@ -741,7 +744,20 @@ function renderTab() {
 
 // ── Session loader ────────────────────────────────────────────────────────────
 
+function showIdle() {
+  S.phase = 'standby';
+  updateHdr();
+  document.getElementById('main').innerHTML = `<div class="screen-center">
+    <div class="sc-title">PITWALL.EXE</div>
+    <div class="sc-status">NO LIVE SESSION<br><br>Checking every minute…</div>
+  </div>`;
+  if (S.idleTimer) clearInterval(S.idleTimer);
+  S.idleTimer = setInterval(loadSession, 60000);
+}
+
 async function loadSession() {
+  // If triggered manually (from menu), clear idle polling
+  if (S.idleTimer) { clearInterval(S.idleTimer); S.idleTimer=null; }
   clearTimeout(_timer); _timer=null;
   if (S.liveTimer) { clearInterval(S.liveTimer); S.liveTimer=null; }
   Object.assign(S, { phase:'loading', meta:null, _src:[], emitted:[], positions:{}, idx:0, audio:{}, liveSession:null, lastPollTs:null });
@@ -758,16 +774,13 @@ async function loadSession() {
 
     setBootMsg('Fetching sessions…');
     if (key === 'latest') {
-      // Fetch recent sessions of any type — picks live race if one is running
+      // Only auto-load if a session is actually live right now
       const list = await get('sessions', { year: new Date().getFullYear() });
       list.sort((a,b) => +new Date(b.date_start) - +new Date(a.date_start));
       const now = new Date();
-      // Live: already started AND not yet ended
-      const live   = list.find(s => new Date(s.date_start) <= now && isLiveSession(s));
-      // Recent: most recently started session (past or ongoing)
-      const recent = list.find(s => new Date(s.date_start) <= now);
-      session = live ?? recent ?? list[list.length - 1];
-      if (!session) throw new Error('No sessions found.');
+      const live = list.find(s => new Date(s.date_start) <= now && isLiveSession(s));
+      if (!live) { showIdle(); return; }
+      session = live;
     } else {
       const list = await get('sessions', { session_key: key });
       session = list[0];
