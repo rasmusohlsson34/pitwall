@@ -799,13 +799,14 @@ async function loadSession() {
     }
 
     setBootMsg(`Loading ${session.session_name}…`);
+    const safe = p => p.catch(() => []);
     const [drivers, laps, positions, raceControl, weather, teamRadio] = await Promise.all([
-      get('drivers',      { session_key: session.session_key }),
-      get('laps',         { session_key: session.session_key }),
-      get('position',     { session_key: session.session_key }),
-      get('race_control', { session_key: session.session_key }),
-      get('weather',      { session_key: session.session_key }),
-      get('team_radio',   { session_key: session.session_key }),
+      safe(get('drivers',      { session_key: session.session_key })),
+      safe(get('laps',         { session_key: session.session_key })),
+      safe(get('position',     { session_key: session.session_key })),
+      safe(get('race_control', { session_key: session.session_key })),
+      safe(get('weather',      { session_key: session.session_key })),
+      safe(get('team_radio',   { session_key: session.session_key })),
     ]);
 
     setBootMsg('Normalizing…');
@@ -833,9 +834,12 @@ async function loadSession() {
     S.phase = 'error';
     document.getElementById('main').innerHTML = `<div class="screen-center">
       <div class="sc-title">PITWALL.EXE</div>
-      <div class="sc-error">${esc(err.message)}<br><br>Check your internet connection and try again.</div>
+      <div class="sc-error">${esc(err.message)}<br><br>Retrying in 15 seconds…</div>
     </div>`;
     updateHdr();
+    // Auto-retry after 15s (handles transient OpenF1 failures during live races)
+    if (S.idleTimer) clearInterval(S.idleTimer);
+    S.idleTimer = setTimeout(loadSession, 15000);
   }
 }
 
